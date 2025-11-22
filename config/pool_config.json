@@ -11,9 +11,8 @@
     "decimals": 6,
     "account": "C1tzxwiSbd1pvAG2dQWtNuWJoJdXDVvc6SVBjb54Qpfa"
   },
-  "pool": {
-    "address": "HR2dzcnvwoEqhrPYsofmXFHgaDxksb2VxMdpbfdDT9nW",
-    "binStep": 25,
-    "activeBin": 8388608
-  }
+  "poolAddress": "9RysHRCsAJQUCPNXvpszB4hTKxV4bdXQKxYVyzPEWFmA",
+  "binStep": 25,
+  "activeBin": 0,
+  "createSignature": "iewago1RSeSMQgL9Knr6ff1DhGmaHXt8HbejYQhGUNcmHcCqgdUAn3qD5tbv47xizkHj28LS8VLbNooVdawbHiq"
 }

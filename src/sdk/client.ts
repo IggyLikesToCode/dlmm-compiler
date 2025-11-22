@@ -1,5 +1,6 @@
-import {Connection, clusterApiUrl, PublicKey} from "@solana/web3.js";
-import DLMM, { BinLiquidity, LbPairAccount } from "@meteora-ag/dlmm"
+import {Connection, clusterApiUrl, PublicKey, Keypair, sendAndConfirmTransaction} from "@solana/web3.js";
+import DLMM, { BinLiquidity, LbPairAccount, PositionInfo, LbPosition, StrategyParameters, StrategyType} from "@meteora-ag/dlmm"
+import BN from "bn.js";
 
 async function checkConnection(): Promise<void> {
     const connection = new Connection(clusterApiUrl('devnet'), 'confirmed');
@@ -20,11 +21,15 @@ checkConnection().catch(err => {
 
 class Client {
     connection: Connection;
-    address: PublicKey;
+    wallet: Keypair;
 
-    constructor(connection: Connection, address: PublicKey) {
+    constructor(connection: Connection, wallet: Keypair) {
         this.connection = connection;
-        this.address = address;
+        this.wallet = wallet;
+    }
+
+    get address(): PublicKey {
+        return this.wallet.publicKey;
     }
 
     async load(poolAddress: string): Promise<DLMM> {
@@ -33,15 +38,110 @@ class Client {
         return dlmm;
     }
 
-    async getLbPairs(): Promise<LbPairAccount[]> {
-        const allPairs = await DLMM.getLbPairs(this.connection);
-        return allPairs;
-    }
-
     async getActiveBin(poolAddress: string): Promise<BinLiquidity> {
         const dlmm = await this.load(poolAddress);
         const activeBin = await dlmm.getActiveBin();
         return activeBin;
     }
-        
+
+    async getAllLbPairPositionsByUser(connection: Connection, usrPubKey: PublicKey): Promise<Map<string, PositionInfo>> {
+        const lbPairs = await DLMM.getAllLbPairPositionsByUser(connection, usrPubKey);
+        return lbPairs;
+    }
+
+    async getPosition(pool_address: string, positionAddress: string): Promise<LbPosition> {
+        const dlmm = await this.load(pool_address);
+        const position = await dlmm.getPosition(new PublicKey(positionAddress));
+        return position;
+    }
+
+    async createStrategy(strategyType: StrategyType, minBinId: number, maxBinId: number) {
+        return {strategyType: strategyType, minBinId: minBinId, maxBinId: maxBinId};
+    }
+
+    async createPosition(pool_address: string, totalXAmount: BN, totalYAmount: BN, strategy: StrategyParameters, slippage?: number): Promise<void> {
+        const dlmm = await this.load(pool_address);
+
+        const positionKeyPair = Keypair.generate();
+
+        console.log("Creating position with parameters:")
+        console.log("Total X Amount:", totalXAmount.toString());
+        console.log("Total Y Amount:", totalYAmount.toString());
+        console.log("Strategy:", strategy);
+        console.log("Slippage:", slippage);
+
+        const tx = await dlmm.initializePositionAndAddLiquidityByStrategy({
+            positionPubKey: positionKeyPair.publicKey,
+            totalXAmount: totalXAmount,
+            totalYAmount: totalYAmount,
+            strategy: strategy,
+            user: this.wallet.publicKey,
+            slippage: slippage
+        });
+
+        const signature = await sendAndConfirmTransaction(
+            this.connection,
+            tx,
+            [this.wallet, positionKeyPair]
+        );
+
+        console.log("Position created: ", positionKeyPair.publicKey.toBase58());
+        console.log("Transaction signature: ", signature);
+    }
+
+    async claimAllRewardsByPosition(pool_address: string,positionAddress: string): Promise<void> {
+        const dlmm = await this.load(pool_address);
+
+        const position = await this.getPosition(pool_address, positionAddress);
+        const txs = await dlmm.claimAllRewardsByPosition({
+            owner: this.wallet.publicKey,
+            position: position
+        });
+
+        for (const tx of txs) {
+            const signature = await sendAndConfirmTransaction(
+                this.connection,
+                tx,
+                [this.wallet]
+            );
+            console.log("Rewards claimed. Transaction signature: ", signature);
+        }
+
+    }
+
+    async closePosition(pool_address: string, positionAddress: string): Promise<void> {
+        //position must be empty before closing
+        const dlmm = await this.load(pool_address);
+
+        const position = await this.getPosition(pool_address, positionAddress);
+        const tx = await dlmm.closePosition({
+            owner: this.wallet.publicKey,
+            position: position
+        });
+
+        const signature = await sendAndConfirmTransaction(
+            this.connection,
+            tx,
+            [this.wallet]
+        );
+        console.log("Position closed. Transaction signature: ", signature);
+    }
+
+    async removeLiquidity(pool_address: string, position_address: string, from: number, to: number, bps: BN, shouldClaimAndClose: boolean): Promise<void> {
+        const dlmm = await this.load(pool_address);
+
+        const txs = await dlmm.removeLiquidity({user: this.wallet.publicKey, position: new PublicKey(position_address), fromBinId: from, toBinId: to, bps: bps, shouldClaimAndClose: shouldClaimAndClose});
+
+        for (const tx of txs) {
+            const signature = await sendAndConfirmTransaction(
+                this.connection,
+                tx,
+                [this.wallet]
+            );
+            console.log("Liquidity removed. Transaction signature: ", signature);
+        }
+    }
+
 }
+
+export default Client;
