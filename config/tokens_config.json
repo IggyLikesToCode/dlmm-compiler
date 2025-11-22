@@ -1,0 +1,19 @@
+{
+  "network": "devnet",
+  "wallet": "9tMJrKci3r1e5Vataub1LyZB37QwbJENHdkoispmgM9B",
+  "tokenX": {
+    "mint": "D7v21edRWZCrDj434JEdrAMeH3Vg5WRdJxW6CkcLnadD",
+    "decimals": 9,
+    "account": "3261CtdNCdKKTw1RmpAkM4hoi6PY3wVK7FxunccGztrC"
+  },
+  "tokenY": {
+    "mint": "GPpC66Hzo8LSh5HU2DSbiVGcjHz6Xd3Tc97HX9ygApyu",
+    "decimals": 6,
+    "account": "C1tzxwiSbd1pvAG2dQWtNuWJoJdXDVvc6SVBjb54Qpfa"
+  },
+  "pool": {
+    "address": "HR2dzcnvwoEqhrPYsofmXFHgaDxksb2VxMdpbfdDT9nW",
+    "binStep": 25,
+    "activeBin": 8388608
+  }
+}
