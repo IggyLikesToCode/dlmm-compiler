@@ -99,7 +99,7 @@ def greedy_select_templates(
         best_r2 = -np.inf
         best_idx = None
         
-        for idx in remaining_idx:
+        for idx in remaining_idx: # Full search over all templates (required for quality)
             # Try adding this template to current selection
             trial_idx = selected_idx + [idx]
             trial_templates = templates[trial_idx]
@@ -122,7 +122,7 @@ def greedy_select_templates(
                 best_r2 = r2
                 best_idx = idx
         
-        # Early termination if improvement is negligible
+        # Early termination if improvement is negligible - rarely used
         improvement = best_r2 - current_r2
         if iteration > 0 and improvement < min_improvement:
             if verbose:
