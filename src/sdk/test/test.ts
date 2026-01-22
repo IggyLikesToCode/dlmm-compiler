@@ -3,7 +3,7 @@ import { createMint, getOrCreateAssociatedTokenAccount, mintTo } from "@solana/s
 import DLMM, {StrategyType} from "@meteora-ag/dlmm";
 import * as fs from "fs";
 import BN from "bn.js";
-import Client from "./client";
+import Client from "../client";
 
 //devnet pool stuff for testing
 const walletData = JSON.parse(fs.readFileSync("./config/devnet_wallet.json", "utf-8"));
