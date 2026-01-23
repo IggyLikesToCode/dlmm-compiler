@@ -16,7 +16,7 @@ dlmm-compiler/
 ├── doc/
 │   └── plans/               # Implementation plans (completed)
 ├── requirements.txt         # Python deps: numpy, scipy, matplotlib
-└── package.json            # Node deps: @meteora-ag/dlmm, @solana/web3.js
+└── package.json             # Node deps: @meteora-ag/dlmm, @solana/web3.js
 ```
 
 ---
@@ -47,8 +47,6 @@ python src/python/templates.py --target uniform --center 34 --width 20 --max-str
 # With visualization (demo/debugging)
 python src/python/templates.py --target gaussian --center 34 --sigma 10 --plot
 
-# Quick quiet export
-python src/python/templates.py -q -o plan.json
 ```
 
 ---
@@ -60,12 +58,3 @@ python src/python/templates.py -q -o plan.json
 npx ts-node src/sdk/executor.ts strategy_plan.json --preview
 ```
 
-**Programmatic usage (in TypeScript):**
-```typescript
-import { executeStrategyPlan, loadStrategyPlan } from "./src/sdk/executor";
-
-const plan = loadStrategyPlan("strategy_plan.json");
-await executeStrategyPlan(client, plan, poolAddress, totalX, totalY, activeBin);
-```
-
----

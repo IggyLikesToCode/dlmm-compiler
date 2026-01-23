@@ -1,6 +1,3 @@
-doc/personal-doc.mc
-
-
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -214,3 +211,4 @@ node_modules/
 dist/
 
 devnet_wallet.json
+doc/personal-doc.md
