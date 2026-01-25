@@ -1,3 +1,4 @@
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -210,3 +211,4 @@ node_modules/
 dist/
 
 devnet_wallet.json
+doc/personal-doc.md
