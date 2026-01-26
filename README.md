@@ -47,7 +47,7 @@ npm install
 
 ## Usage
 
-### Python Optimizer (CLI)
+### Test Python Optimizer (CLI) (templates.py)
 
 Generate a strategy plan from a target distribution:
 
@@ -69,7 +69,7 @@ python src/python/templates.py \
   --plot
 ```
 
-### CLI Options
+#### CLI Options
 
 
  `--target`         -- Distribution type: gaussian, uniform, curve, bid_ask - Usually gaussian 
@@ -83,15 +83,30 @@ python src/python/templates.py \
  `--quiet`, `-q`    -- Suppress verbose output                              - Usually False 
 
 
-### TypeScript Executor
+## TypeScript Executor
 
 Preview a strategy plan:
 
 ```bash
-npx ts-node src/sdk/executor.ts strategy_plan.json --preview
+npx ts-node src/sdk/executor.ts strategy_plan.json --pool <pool_address> --preview
 ```
 
-## Output Format
+Deploy to devnet (requires wallet):
+
+```bash
+# Set up wallet in .env file
+echo "PRIVATE_KEY=your_base58_key" > .env
+
+# Deploy interactively
+npx ts-node src/sdk/executor.ts strategy_plan.json \
+  --pool 9RysHRCsAJQUCPNXvpszB4hTKxV4bdXQKxYVyzPEWFmA \
+  --amount-x 1000000000 \
+  --amount-y 1000000
+```
+
+The executor will show a preview, ask for confirmation, then deploy each strategy with retry on failure.
+
+## Output Format (FOR ALGO(templates.py))
 
 The strategy plan JSON format:
 
