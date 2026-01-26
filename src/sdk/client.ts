@@ -59,7 +59,7 @@ class Client {
         return {strategyType: strategyType, minBinId: minBinId, maxBinId: maxBinId};
     }
 
-    async createPosition(pool_address: string, totalXAmount: BN, totalYAmount: BN, strategy: StrategyParameters, slippage?: number): Promise<void> {
+    async createPosition(pool_address: string, totalXAmount: BN, totalYAmount: BN, strategy: StrategyParameters, slippage?: number): Promise<string> {
         const dlmm = await this.load(pool_address);
 
         const positionKeyPair = Keypair.generate();
@@ -87,6 +87,8 @@ class Client {
 
         console.log("Position created: ", positionKeyPair.publicKey.toBase58());
         console.log("Transaction signature: ", signature);
+        
+        return positionKeyPair.publicKey.toBase58();
     }
 
     async claimAllRewardsByPosition(pool_address: string,positionAddress: string): Promise<void> {
