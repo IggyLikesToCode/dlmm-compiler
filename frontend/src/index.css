@@ -7,6 +7,18 @@
 html {
   font-size: 144%;
   scroll-behavior: smooth;
+  scroll-padding-top: 80px;
+}
+
+/* Smooth scrolling with easing */
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  * {
+    scroll-behavior: smooth;
+  }
 }
 
 html, body, #root {
@@ -78,11 +90,14 @@ body {
 /* Second section - darker Mediterranean */
 .second-section {
   background-color: #E8E2D5;
+  scroll-margin-top: 20px;
 }
 
-/* Third section - even darker for contrast */
+/* Third section - same as second with divider */
 .third-section {
-  background-color: #DDD6C6;
+  background-color: #E8E2D5;
+  border-top: 1px solid rgba(1, 1, 31, 0.15);
+  scroll-margin-top: 20px;
 }
 
 /* DLMM highlight box */

@@ -181,6 +181,42 @@ function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const numBins = 69
 
+  // Smooth scroll with easing
+  const smoothScrollTo = (targetId: string) => {
+    const element = document.getElementById(targetId)
+    if (!element) return
+
+    const targetPosition = element.getBoundingClientRect().top + window.pageYOffset - 20
+    const startPosition = window.pageYOffset
+    const distance = targetPosition - startPosition
+    const duration = 1000
+    let start: number | null = null
+
+    const easeInOutCubic = (t: number): number => {
+      return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
+    }
+
+    const animation = (currentTime: number) => {
+      if (start === null) start = currentTime
+      const timeElapsed = currentTime - start
+      const progress = Math.min(timeElapsed / duration, 1)
+      const ease = easeInOutCubic(progress)
+
+      window.scrollTo(0, startPosition + distance * ease)
+
+      if (timeElapsed < duration) {
+        requestAnimationFrame(animation)
+      }
+    }
+
+    requestAnimationFrame(animation)
+  }
+
+  const handleNavClick = (e: React.MouseEvent<HTMLAnchorElement>, targetId: string) => {
+    e.preventDefault()
+    smoothScrollTo(targetId)
+  }
+
   const toggleQA = (index: number) => {
     setQaItems(items => items.map((item, i) =>
       i === index ? { ...item, isOpen: true } : { ...item, isOpen: false }
@@ -203,7 +239,7 @@ function App() {
           const timer = window.setTimeout(() => {
             setShowScrollIndicator(true)
             setAtTopTimer(null)
-          }, 3000)
+          }, 1000)
           setAtTopTimer(timer)
         }
       }
@@ -414,7 +450,7 @@ function App() {
       {/* Hero Section - Full Viewport */}
       <section className="hero-section min-h-screen flex flex-col relative">
         {/* Header */}
-        <header className="w-full py-4 px-6">
+        <header className="w-full py-4 px-6 relative z-20">
           <div className="max-w-6xl mx-auto flex items-center justify-between">
             {/* Logo/Title */}
             <h1 className="font-display text-xl font-bold tracking-wide text-[#01011F]">
@@ -423,13 +459,25 @@ function App() {
 
             {/* Center Navigation */}
             <nav className="flex items-center gap-8">
-              <a href="#what" className="nav-link text-sm font-medium">
+              <a
+                href="#what"
+                className="nav-link text-sm font-medium"
+                onClick={(e) => handleNavClick(e, 'what')}
+              >
                 What is Algora?
               </a>
-              <a href="#how" className="nav-link text-sm font-medium">
+              <a
+                href="#how"
+                className="nav-link text-sm font-medium"
+                onClick={(e) => handleNavClick(e, 'how')}
+              >
                 How it works?
               </a>
-              <a href="#access" className="nav-link text-sm font-medium">
+              <a
+                href="#access"
+                className="nav-link text-sm font-medium"
+                onClick={(e) => handleNavClick(e, 'access')}
+              >
                 Benefits
               </a>
             </nav>
@@ -444,7 +492,7 @@ function App() {
         </header>
 
         {/* Main Content - shifted up */}
-        <main className="flex-1 flex items-center justify-center px-6 -mt-24">
+        <main className="flex-1 flex items-center justify-center px-6 -mt-24 relative z-10">
           <section className="text-center max-w-4xl">
             <h2 className="font-serif-classic text-5xl md:text-6xl lg:text-7xl font-medium text-[#01011F] leading-tight">
               Precision liquidity positioning for Meteora{' '}
@@ -478,10 +526,10 @@ function App() {
       </section>
 
       {/* What is Algora Section */}
-      <section id="what" className="second-section min-h-screen flex items-center justify-center px-6 py-24">
-        <div className="max-w-5xl mx-auto">
+      <section id="what" className="second-section min-h-screen flex items-start px-6 py-16">
+        <div className="max-w-5xl mx-auto w-full">
           <div className="section-fade-in">
-            <h3 className="font-serif-classic text-4xl md:text-5xl font-medium text-[#01011F] mb-12 text-center">
+            <h3 className="font-serif-classic text-4xl md:text-5xl font-medium text-[#01011F] mb-12 text-left">
               What is Algora?
             </h3>
 
@@ -547,13 +595,13 @@ function App() {
       </section>
 
       {/* How it Works Section */}
-      <section id="how" className="third-section min-h-screen px-6 py-24">
+      <section id="how" className="third-section min-h-screen px-6 py-16">
         <div className="max-w-6xl mx-auto">
           <div className="section-fade-in">
-            <h3 className="font-serif-classic text-4xl md:text-5xl font-medium text-[#01011F] mb-6 text-center">
+            <h3 className="font-serif-classic text-4xl md:text-5xl font-medium text-[#01011F] mb-6 text-left">
               How it works
             </h3>
-            <p className="font-display text-lg text-[#01011F] opacity-70 text-center mb-16 max-w-2xl mx-auto">
+            <p className="font-display text-lg text-[#01011F] opacity-70 text-left mb-16 max-w-2xl">
               Algora combines multiple Meteora strategy templates to approximate any target liquidity distribution with mathematical precision.
             </p>
 
