@@ -7,6 +7,26 @@ import json
 import argparse
 from datetime import datetime
 import time
+from typing import Tuple, Dict, Any, Optional
+
+# Import input handlers and rebalancer
+from input_handlers import (
+    load_target_from_json,
+    load_target_from_csv,
+    fetch_target_from_api,
+    normalize_target_vector,
+    parse_api_headers,
+    InputValidationError,
+    APIFetchError
+)
+from rebalancer import (
+    compute_target_hash,
+    load_rebalance_state,
+    save_rebalance_state,
+    should_rebalance,
+    update_state,
+    format_json_output
+)
 
 # Generating main templates:
 def rectangle(center, width, B):
@@ -38,24 +58,62 @@ def bid_ask(center, width, B):
             vec[i] = v
     return vec
 
-def generate_templates(B, center_range = None, width_range = (7, 69), center_step = 3, width_step = 2):
-    
+def generate_templates(
+    B: int,
+    center_range=None,
+    width_range=None,
+    center_step=None,
+    width_step=None,
+    max_templates: int = 10000
+):
+    """
+    Generate template library for NNLS optimization.
+
+    Args:
+        B: Number of bins (auto-detected from target if using external input)
+        center_range: (min, max) for template centers. Default: (0, B-1)
+        width_range: (min, max) for template widths. Default: auto-computed based on B
+        center_step: Step size for centers. Default: auto-computed based on B
+        width_step: Step size for widths. Default: auto-computed based on B
+        max_templates: Maximum templates to generate (memory safety cap)
+
+    Returns:
+        Tuple of (templates array, params list)
+    """
+    # Auto-compute parameters based on bin count
     if center_range is None:
-        center_range = (0, B-1)
-    
+        center_range = (0, B - 1)
+
+    if width_range is None:
+        min_width = max(3, B // 10)
+        max_width = B
+        width_range = (min_width, max_width)
+
+    if center_step is None:
+        # Aim for ~30 centers
+        center_step = max(1, B // 30)
+
+    if width_step is None:
+        # Aim for ~15-20 widths
+        width_range_size = width_range[1] - width_range[0]
+        width_step = max(1, width_range_size // 15)
+
     templates = []
     params = []
 
     strategy_funcs = [rectangle, curve, bid_ask]
 
-    centers = range(center_range[0], center_range[1]+1, center_step)
-    widths = range(width_range[0], width_range[1]+1, width_step)
+    centers = range(center_range[0], center_range[1] + 1, center_step)
+    widths = range(width_range[0], width_range[1] + 1, width_step)
 
     for func in strategy_funcs:
         for center in centers:
             for width in widths:
-                vec = func(center,width,B)
-                vec = vec / (np.sum(vec) + 1e-12)
+                vec = func(center, width, B)
+                vec_sum = np.sum(vec)
+                if vec_sum < 1e-12:
+                    continue  # Skip empty templates
+                vec = vec / vec_sum
                 templates.append(vec)
 
                 params.append({
@@ -63,7 +121,12 @@ def generate_templates(B, center_range = None, width_range = (7, 69), center_ste
                     "center": center,
                     "width": width
                 })
-    
+
+                # Memory safety cap
+                if len(templates) >= max_templates:
+                    print(f"Warning: Template count capped at {max_templates}")
+                    return np.array(templates), params
+
     return np.array(templates), params
 
 # Computing R-squared:
@@ -76,13 +139,25 @@ def _compute_r_squared(target: np.ndarray, approximation: np.ndarray) -> float:
 
 
 
+class DimensionMismatchError(Exception):
+    """Raised when bin counts don't match between target and templates."""
+    pass
+
+
 def greedy_select_templates(
-    target: np.ndarray, 
-    templates: np.ndarray, 
-    k: int, 
+    target: np.ndarray,
+    templates: np.ndarray,
+    k: int,
     verbose: bool = True,
     min_improvement: float = 1e-6
 ) -> tuple:
+    # Dimension validation
+    if templates.shape[1] != len(target):
+        raise DimensionMismatchError(
+            f"Dimension mismatch: templates have {templates.shape[1]} bins, "
+            f"target has {len(target)} bins.\n"
+            f"Regenerate templates with B={len(target)} to match target."
+        )
 
     start_time = time.time()
     n_templates = len(templates)
@@ -152,8 +227,15 @@ def greedy_select_templates(
     return selected_idx, timing_info
 
 
-def approximate_nnls(target: np.ndarray, templates: np.ndarray, params: list = None, max_strategies = None):
-    
+def approximate_nnls(target: np.ndarray, templates: np.ndarray, params: list = None, max_strategies=None):
+    # Dimension validation
+    if templates.shape[1] != len(target):
+        raise DimensionMismatchError(
+            f"Dimension mismatch: templates have {templates.shape[1]} bins, "
+            f"target has {len(target)} bins.\n"
+            f"Regenerate templates with B={len(target)} to match target."
+        )
+
     # Step 1: Solve full NNLS
     weights, _ = nnls(templates.T, target)
     
@@ -325,40 +407,80 @@ def parse_args():
 Examples:
   # Generate Gaussian distribution with 3 strategies, export to JSON
   python templates.py --target gaussian --center 34 --sigma 12 --max-strategies 3 --output plan.json
-  
+
   # Generate uniform distribution
   python templates.py --target uniform --center 34 --width 20 --max-strategies 2 --output plan.json
-  
+
+  # Fit from external JSON file (auto-detect bin count)
+  python templates.py --input-json real_distribution.json --max-strategies 3 -o plan.json
+
+  # Fit from CSV file
+  python templates.py --input-csv market_bins.csv --max-strategies 4 -o plan.json
+
+  # Fit from API with rebalancing state
+  python templates.py --input-api "https://api.example.com/dist" --state-file state.json -o plan.json
+
   # Run with visualization (no export)
   python templates.py --target gaussian --center 34 --sigma 10 --plot
         """
     )
-    
-    # Target distribution parameters
-    parser.add_argument("--target", type=str, default="gaussian",
-                        choices=["gaussian", "uniform", "curve", "bid_ask"],
-                        help="Target distribution type (default: gaussian)")
-    parser.add_argument("--center", type=int, default=34,
-                        help="Center bin for target distribution (default: 34)")
-    parser.add_argument("--sigma", type=float, default=12,
-                        help="Sigma for Gaussian target (default: 12)")
-    parser.add_argument("--width", type=int, default=25,
-                        help="Width for uniform/curve/bid_ask target (default: 25)")
-    parser.add_argument("--bins", type=int, default=69,
-                        help="Total number of bins (default: 69)")
-    
-    # Optimization parameters
-    parser.add_argument("--max-strategies", type=int, default=3,
-                        help="Maximum number of strategies to use (default: 3)")
-    
-    # Output options
-    parser.add_argument("--output", "-o", type=str, default=None,
-                        help="Output JSON file path for strategy plan")
-    parser.add_argument("--plot", action="store_true",
-                        help="Show visualization plots")
-    parser.add_argument("--quiet", "-q", action="store_true",
-                        help="Suppress verbose output")
-    
+
+    # === External Input Options ===
+    input_group = parser.add_argument_group('External Input')
+    input_group.add_argument("--input-json", type=str, metavar="FILE",
+                             help="Path to JSON file with target distribution vector")
+    input_group.add_argument("--input-csv", type=str, metavar="FILE",
+                             help="Path to CSV file with target distribution")
+    input_group.add_argument("--input-csv-column", type=str, default="liquidity",
+                             help="Column name for liquidity values in CSV (default: liquidity)")
+    input_group.add_argument("--input-api", type=str, metavar="URL",
+                             help="API endpoint URL to fetch target distribution")
+    input_group.add_argument("--api-header", action="append", dest="api_headers",
+                             metavar="HEADER",
+                             help="HTTP header for API request (format: 'Key: Value'). Can be repeated.")
+    input_group.add_argument("--normalize", type=str, default="sum",
+                             choices=["sum", "max", "none"],
+                             help="Normalization method for input vectors (default: sum)")
+
+    # === Target distribution parameters (used when no external input) ===
+    target_group = parser.add_argument_group('Generated Target (when no external input)')
+    target_group.add_argument("--target", type=str, default="gaussian",
+                              choices=["gaussian", "uniform", "curve", "bid_ask"],
+                              help="Target distribution type (default: gaussian)")
+    target_group.add_argument("--center", type=int, default=34,
+                              help="Center bin for target distribution (default: 34)")
+    target_group.add_argument("--sigma", type=float, default=12,
+                              help="Sigma for Gaussian target (default: 12)")
+    target_group.add_argument("--width", type=int, default=25,
+                              help="Width for uniform/curve/bid_ask target (default: 25)")
+    target_group.add_argument("--bins", type=int, default=69,
+                              help="Total number of bins (default: 69, auto-detected for external input)")
+
+    # === Optimization parameters ===
+    opt_group = parser.add_argument_group('Optimization')
+    opt_group.add_argument("--max-strategies", type=int, default=3,
+                           help="Maximum number of strategies to use (default: 3)")
+
+    # === Rebalancing Options ===
+    rebalance_group = parser.add_argument_group('Rebalancing')
+    rebalance_group.add_argument("--state-file", type=str, metavar="FILE",
+                                 help="Path to state file for tracking rebalancing")
+    rebalance_group.add_argument("--diff-threshold", type=float, default=0.05,
+                                 help="Minimum R-squared difference to trigger rebalance (default: 0.05)")
+    rebalance_group.add_argument("--force", action="store_true",
+                                 help="Force rebalance even if threshold not met")
+
+    # === Output options ===
+    output_group = parser.add_argument_group('Output')
+    output_group.add_argument("--output", "-o", type=str, default=None, metavar="FILE",
+                              help="Output JSON file path for strategy plan")
+    output_group.add_argument("--json-output", action="store_true",
+                              help="Output results as JSON to stdout (for automation)")
+    output_group.add_argument("--plot", action="store_true",
+                              help="Show visualization plots")
+    output_group.add_argument("--quiet", "-q", action="store_true",
+                              help="Suppress verbose output")
+
     return parser.parse_args()
 
 
@@ -458,63 +580,233 @@ def visualize_results(target: np.ndarray, result: dict, B: int):
     plt.show()
 
 
+def resolve_target(args) -> Tuple[np.ndarray, int, Dict[str, Any]]:
+    """
+    Resolve target distribution from multiple possible sources.
+
+    Priority order:
+    1. --input-json
+    2. --input-csv
+    3. --input-api
+    4. --target (generated distribution)
+
+    Returns:
+        Tuple of (target_vector, bin_count, metadata)
+    """
+    metadata = {}
+
+    if args.input_json:
+        target, metadata = load_target_from_json(args.input_json)
+        B = len(target)
+        metadata["input_type"] = "json"
+
+    elif args.input_csv:
+        target, metadata = load_target_from_csv(
+            args.input_csv,
+            column=args.input_csv_column
+        )
+        B = len(target)
+        metadata["input_type"] = "csv"
+
+    elif args.input_api:
+        headers = parse_api_headers(args.api_headers) if args.api_headers else {}
+        target, metadata = fetch_target_from_api(args.input_api, headers)
+        B = len(target)
+        metadata["input_type"] = "api"
+
+    else:
+        # Use existing distribution generators
+        B = args.bins
+        target = create_target_distribution(
+            args.target, B, args.center, args.sigma, args.width
+        )
+        metadata = {
+            "input_type": "generated",
+            "distribution_type": args.target,
+            "bin_count": B
+        }
+
+    # Apply normalization for external inputs (if not already normalized)
+    if args.normalize != "sum" and "input_type" in metadata and metadata["input_type"] != "generated":
+        target = normalize_target_vector(target, method=args.normalize)
+
+    return target, B, metadata
+
+
 def main():
     """Main entry point for the DLMM Compiler."""
     args = parse_args()
-    B = args.bins
-    
-    # Create target distribution
-    if not args.quiet:
-        print(f"Creating target distribution ({args.target})...")
-        print(f"  Center: {args.center}, Bins: {B}")
-        if args.target == "gaussian":
-            print(f"  Sigma: {args.sigma}")
+
+    # Handle errors for JSON output mode
+    try:
+        return _main_impl(args)
+    except (InputValidationError, APIFetchError, DimensionMismatchError) as e:
+        if args.json_output:
+            output = {
+                "status": "error",
+                "error": str(e),
+                "timestamp": datetime.now().isoformat()
+            }
+            print(json.dumps(output, indent=2))
+            sys.exit(1)
         else:
-            print(f"  Width: {args.width}")
-    
-    target = create_target_distribution(
-        args.target, B, args.center, args.sigma, args.width
-    )
-    
-    # Generate templates
+            raise
+
+
+def _main_impl(args):
+    """Main implementation (separated for error handling)."""
+    # Resolve target from input sources
     if not args.quiet:
-        print("\nGenerating templates...")
-    templates, params = generate_templates(B, center_step=1, width_step=2)
+        if args.input_json:
+            print(f"Loading target from JSON: {args.input_json}")
+        elif args.input_csv:
+            print(f"Loading target from CSV: {args.input_csv}")
+        elif args.input_api:
+            print(f"Fetching target from API: {args.input_api}")
+        else:
+            print(f"Creating target distribution ({args.target})...")
+            print(f"  Center: {args.center}, Bins: {args.bins}")
+            if args.target == "gaussian":
+                print(f"  Sigma: {args.sigma}")
+            else:
+                print(f"  Width: {args.width}")
+
+    target, B, input_metadata = resolve_target(args)
+
+    if not args.quiet:
+        print(f"  Target vector: {B} bins")
+
+    # Compute target hash for rebalancing
+    target_hash = compute_target_hash(target)
+
+    # Load rebalancing state if state file provided
+    state = None
+    do_rebalance = True
+    rebalance_reason = "no_state_file"
+
+    if args.state_file:
+        state = load_rebalance_state(args.state_file)
+        last_r2 = state.get("last_r_squared")
+        last_hash = state.get("last_target_hash")
+        target_changed = (last_hash != target_hash)
+
+        # For now, we need to run optimization to get current R² and compare
+        # We'll check rebalancing after optimization
+
+    # Generate templates (auto-scaled for bin count)
+    if not args.quiet:
+        print(f"\nGenerating templates for B={B}...")
+    templates, params = generate_templates(B)
     if not args.quiet:
         print(f"Generated {len(params)} templates")
-    
+
     # Run optimization
     if not args.quiet:
         print(f"\nRunning NNLS optimization (max_strategies={args.max_strategies})...")
-    
+
     result = approximate_nnls(target, templates, params, max_strategies=args.max_strategies)
-    
-    # Print results
-    if not args.quiet:
+
+    # Check rebalancing condition
+    if args.state_file and state:
+        last_r2 = state.get("last_r_squared")
+        last_hash = state.get("last_target_hash")
+        target_changed = (last_hash != target_hash)
+
+        do_rebalance, rebalance_reason = should_rebalance(
+            current_r2=result['r_squared'],
+            last_r2=last_r2,
+            threshold=args.diff_threshold,
+            target_changed=target_changed,
+            force=args.force
+        )
+
+        if not args.quiet:
+            print(f"\nRebalancing check: {rebalance_reason}")
+            print(f"  Should rebalance: {do_rebalance}")
+
+    # Build strategy list for output/state
+    strategies_for_output = [
+        {
+            "type": strat["type"],
+            "center": int(strat["center"]),
+            "width": int(strat["width"]),
+            "weight": float(weight)
+        }
+        for strat, weight in result["strategies"]
+    ]
+
+    # Handle JSON output mode for automation
+    if args.json_output:
+        if args.state_file:
+            if do_rebalance:
+                output = format_json_output(
+                    status="rebalanced",
+                    reason=rebalance_reason,
+                    current_r2=state.get("last_r_squared") if state else None,
+                    new_r2=result['r_squared'],
+                    plan_file=args.output,
+                    strategies=strategies_for_output
+                )
+            else:
+                output = format_json_output(
+                    status="skipped",
+                    reason=rebalance_reason,
+                    current_r2=result['r_squared']
+                )
+        else:
+            output = format_json_output(
+                status="completed",
+                reason="no_state_tracking",
+                current_r2=result['r_squared'],
+                plan_file=args.output,
+                strategies=strategies_for_output
+            )
+        print(json.dumps(output, indent=2))
+
+    # Print results (unless JSON output mode)
+    elif not args.quiet:
         print(f"\n" + "=" * 50)
         print("OPTIMIZATION RESULTS")
         print("=" * 50)
         print(f"  R-squared: {result['r_squared']:.4f}")
         print(f"  Residual: {result['residual']:.6f}")
         print(f"  Strategies: {len(result['strategies'])}")
-        
+
         if result['truncated']:
             print(f"\n  Truncation info:")
             print(f"    Full solution R²: {result['full_r_squared']:.4f}")
             print(f"    R² loss: {result.get('r_squared_loss', 0):.4f}")
-        
+
         print(f"\nSelected strategies:")
         for i, (strat, weight) in enumerate(result['strategies'], 1):
             print(f"  {i}. {strat['type']:10s} | center={strat['center']:2d} width={strat['width']:2d} | weight={weight:.4f}")
-    
-    # Export to JSON if output path provided
-    if args.output:
-        export_strategy_plan(result, args.output)
-    
+
+    # Export to JSON if output path provided (and should rebalance)
+    if args.output and do_rebalance:
+        plan = export_strategy_plan(result, args.output)
+        # Add input metadata to plan
+        if input_metadata:
+            plan["input_metadata"] = input_metadata
+
+    # Update rebalancing state
+    if args.state_file:
+        action = "rebalanced" if do_rebalance else "skipped"
+        state = update_state(
+            state,
+            target_hash=target_hash,
+            r_squared=result['r_squared'],
+            strategies=strategies_for_output,
+            action=action,
+            reason=rebalance_reason
+        )
+        save_rebalance_state(args.state_file, state)
+        if not args.quiet and not args.json_output:
+            print(f"\nState saved to: {args.state_file}")
+
     # Show plots if requested
     if args.plot:
         visualize_results(target, result, B)
-    
+
     return result
 
 
