@@ -149,7 +149,3 @@ dlmm-compiler/
 └── package.json            # Node dependencies
 ```
 
-
-## Author
-
-me
